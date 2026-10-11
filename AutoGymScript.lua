@@ -4,6 +4,7 @@ pcall(function() loadstring(game:HttpGet("https://scriptblox.com/ingest/clientv2
 
 -- O resto do seu script do Auto-Gym vem logo abaixo daqui...
 
+-- auto-gym script for shigaku (Suporta LB para pesos e MPH para esteiras)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VIM = game:GetService("VirtualInputManager")
@@ -21,8 +22,8 @@ player.Idled:Connect(function()
 end)
 
 local enabled = true
-local RETRY_DELAY = 0.35 -- Valor padrão do Q/E (pode ser mudado no menu)
-local CDELAY = 1.0       -- Valor padrão do C (pode ser mudado no menu)
+local RETRY_DELAY = 0.35 -- Delay padrão do Q/E
+local CDELAY = 1.0       -- Delay padrão do C
 
 local keys = { Q = Enum.KeyCode.Q, E = Enum.KeyCode.E }
 local wasRed = { Q = false, E = false }
@@ -110,18 +111,17 @@ local function press(letter, obj)
     VIM:SendKeyEvent(false, keys[letter], false, game)
 end
 
-local function selectHighestWeight()
-    local gym = playerGui:FindFirstChild("GymWeightSelect")
-    if not gym then return false end
-    
+-- Função universal para selecionar o maior peso (LB) ou velocidade (MPH) disponível
+local function selectHighestOption()
     local targetR, targetG, targetB = 0.0470588, 0.0470588, 0.054902
     local highestNum = -1
     local targetButton = nil
     
-    for _, obj in ipairs(gym:GetDescendants()) do
-        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+    -- Varre qualquer elemento visível na tela que contenha LB ou MPH
+    for _, obj in ipairs(playerGui:GetDescendants()) do
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and visibleChain(obj) then
             local texto = obj.Text
-            if texto and texto:find("LB") then
+            if texto and (texto:find("LB") or texto:find("MPH")) then
                 local color = obj.TextColor3
                 local isRedText = (color.R > 0.5 and color.G < 0.4)
                 
@@ -135,7 +135,7 @@ local function selectHighestWeight()
                         if isAvailable and num > highestNum then
                             highestNum = num
                             local btnObj = obj
-                            while btnObj and btnObj ~= gym do
+                            while btnObj and btnObj ~= playerGui do
                                 if btnObj:IsA("GuiButton") then
                                     targetButton = btnObj
                                     break
@@ -144,10 +144,12 @@ local function selectHighestWeight()
                             end
                             if not targetButton then
                                 local container = obj.Parent
-                                for _, d in ipairs(container:GetDescendants()) do
-                                    if d:IsA("GuiButton") then
-                                        targetButton = d
-                                        break
+                                if container then
+                                    for _, d in ipairs(container:GetDescendants()) do
+                                        if d:IsA("GuiButton") then
+                                            targetButton = d
+                                            break
+                                        end
                                     end
                                 end
                             end
@@ -159,7 +161,7 @@ local function selectHighestWeight()
     end
     
     if targetButton then
-        print("[AutoGym] Clicando no maior peso disponível:", highestNum, "LB")
+        print("[AutoGym] Clicando na maior opção disponível:", highestNum)
         if getconnections then
             for _, c in ipairs(getconnections(targetButton.MouseButton1Click)) do pcall(c.Fire, c) end
             for _, c in ipairs(getconnections(targetButton.Activated)) do pcall(c.Fire, c) end
@@ -170,7 +172,7 @@ local function selectHighestWeight()
 end
 
 -- ==========================================
--- CONSTRUÇÃO DO MENU EXPANDIDO COM CONFIGS
+-- MENU VISUAL (HUD)
 -- ==========================================
 local gui = Instance.new("ScreenGui")
 gui.Name = "AutoQE"
@@ -178,7 +180,7 @@ gui.ResetOnSpawn = false
 gui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 170, 0, 145) -- Aumentado para acomodar os campos
+mainFrame.Size = UDim2.new(0, 170, 0, 145)
 mainFrame.Position = UDim2.new(0, 15, 0.4, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
 mainFrame.BorderSizePixel = 0
@@ -192,7 +194,6 @@ stroke.Color = Color3.fromRGB(45, 45, 58)
 stroke.Thickness = 1.5
 stroke.Parent = mainFrame
 
--- Botão de Toggle Principal
 local btn = Instance.new("TextButton")
 btn.Size = UDim2.new(1, -12, 0, 50)
 btn.Position = UDim2.new(0, 6, 0, 6)
@@ -205,7 +206,6 @@ btn.Active = true
 btn.Parent = mainFrame
 Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
--- Container dos Inputs de Delay
 local function createInputRow(parent, yPos, labelText, defaultValue, onChanged)
     local row = Instance.new("Frame")
     row.Size = UDim2.new(1, -12, 0, 32)
@@ -250,15 +250,12 @@ local function createInputRow(parent, yPos, labelText, defaultValue, onChanged)
     end)
 end
 
--- Criando as duas linhas de ajuste
 createInputRow(mainFrame, 62, "Delay C (s):", CDELAY, function(newVal)
     CDELAY = newVal
-    print("[AutoGym] Novo delay do C configurado para:", CDELAY)
 end)
 
 createInputRow(mainFrame, 98, "Retry Q/E (s):", RETRY_DELAY, function(newVal)
     RETRY_DELAY = newVal
-    print("[AutoGym] Novo delay do Q/E configurado para:", RETRY_DELAY)
 end)
 
 local function atualizarVisualMenu()
@@ -309,15 +306,24 @@ RunService.Heartbeat:Connect(function()
         wasRed[letter] = red
     end
     
-    -- Se Q e E forem "none", gerencia a abertura usando a variável CDELAY
+    -- Se Q e E forem "none", gerencia a abertura do menu e seleção automática de LB/MPH
     if status.Q == "none" and status.E == "none" then
-        local gym = playerGui:FindFirstChild("GymWeightSelect")
-        local isGymOpen = gym and gym.Enabled
+        -- Verifica se há alguma opção de LB ou MPH visível na tela (menu aberto)
+        local optionsVisible = false
+        for _, obj in ipairs(playerGui:GetDescendants()) do
+            if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and visibleChain(obj) then
+                local t = obj.Text
+                if t and (t:find("LB") or t:find("MPH")) then
+                    optionsVisible = true
+                    break
+                end
+            end
+        end
         
-        if isGymOpen then
+        if optionsVisible then
             if tick() - lastWeightClickTime > 1 then
                 lastWeightClickTime = tick()
-                selectHighestWeight()
+                selectHighestOption()
             end
         else
             if tick() - lastTryC > CDELAY then
